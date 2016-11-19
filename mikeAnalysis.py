@@ -4,7 +4,8 @@ import copy
 import random
 
 from sklearn.svm import SVR
-from sklearn.metrics import mean_squared_error
+from sklearn.neural_network import MLPClassifier as MLP
+from sklearn.metrics import mean_squared_error, accuracy_score
 
 from matplotlib import pyplot as plt
 
@@ -35,6 +36,7 @@ def split_data_set(data, labels, train_split=0.5, shuffle=True):
          np.array(ytrain), \
          np.array(Xtest),  \
          np.array(ytest)
+
 
 def shuffle_lists(l1, l2):
   l1Shuf = []
@@ -114,8 +116,31 @@ def SVM(dataFile):
   print("SVM mean squared error:", mse_G)
 
   show_roc(testErr, trainErr)
-  
+
+
+def NN(dataFile):
+  runs = 5
+
+  X, y = load_data(dataFile)
+
+  C = MLP()
+  tmpG = 0
+  testErr = []
+  trainErr = []
+  for run in range(runs):
+    X_train, y_train, X_test, y_test = split_data_set(X, y, train_split=0.7)
+    fit = C.fit(X_train, y_train)
+    y_pred_test = fit.predict(X_test)
+    y_pred_train = fit.predict(X_train)
+
+    tmpG += accuracy_score(y_test, y_pred_test)
+    testErr = calc_error(y_test, y_pred_test)
+    trainErr = calc_error(y_test, y_pred_train)
+  mse_C = tmpG/runs
+  print("NN mean squared error:", mse_C)
+
+
 
 if __name__ == "__main__":
-  dataFile = 'stockSentiment.csv'
-  SVM(dataFile)
+  dataFile = 'stockSentimentA.csv'
+  NN(dataFile)
