@@ -1,53 +1,20 @@
+'''
+ You need scikit-learn V0.18.x to run this
+'''
 
 import numpy as np
 import copy
 import random
 
-from sklearn.svm import SVR
+from sklearn.model_selection import KFold, GridSearchCV, cross_val_predict, StratifiedKFold
+from sklearn.metrics import mean_squared_error, accuracy_score, confusion_matrix
 from sklearn.neural_network import MLPClassifier as MLP
-from sklearn.metrics import mean_squared_error, accuracy_score
+from sklearn.preprocessing import normalize
+from sklearn.svm import SVC
 
 from matplotlib import pyplot as plt
 
 random.seed()
-
-def split_data_set(data, labels, train_split=0.5, shuffle=True):
-  Xtrain = []
-  Xtest  = []
-  ytrain = []
-  ytest  = []
-  d = copy.deepcopy(data)
-  l = copy.deepcopy(labels)
-  if shuffle:
-    d, l = shuffle_lists(copy.deepcopy(data), copy.deepcopy(labels))
-  nData = int(len(l)*train_split)
-  for i, r in enumerate(d[:nData]):
-    tmp = copy.deepcopy(r)
-    ytrain.append(l[i])
-    tmp = np.insert(tmp, 0, 1) # add bias
-    Xtrain.append(np.array(tmp))
-  for i, r in enumerate(d[nData:]):
-    tmp = copy.deepcopy(r)
-    ytest.append(l[nData+i])
-    tmp = np.insert(tmp, 0, 1) # add bias
-    Xtest.append(np.array(tmp))
-
-  return np.array(Xtrain), \
-         np.array(ytrain), \
-         np.array(Xtest),  \
-         np.array(ytest)
-
-
-def shuffle_lists(l1, l2):
-  l1Shuf = []
-  l2Shuf = []
-  iShuf = list(range(l1.shape[0]))
-  random.shuffle(iShuf)
-  for i in iShuf:
-    l1Shuf.append(l1[i])
-    l2Shuf.append(l2[i])
-  return (l1Shuf, l2Shuf)
-
 
 def load_data(dataFile):
   X = []
@@ -95,52 +62,84 @@ def show_roc(testErr, trainErr):
 
 
 def SVM(dataFile):
-  runs = 5
+  runs = 2
+  folds = 20
 
   X, y = load_data(dataFile)
 
-  G = SVR(epsilon=1.0)
-  tmpG = 0
-  testErr = []
-  trainErr = []
+  param_grid = [
+    #{'C': [1, 10, 100, 1000], 'gamma': [1, 0.1, 0.01, 0.001, 0.0001]},
+    {'C': [1, 10]},
+  ]
+
+  # Normalize
+  # axis=0 so each feature is normalized for all samples
+  XN = normalize(X, axis=0)
+
+  tmpC = 0
   for run in range(runs):
-    X_train, y_train, X_test, y_test = split_data_set(X, y, train_split=0.7)
-    fit = G.fit(X_train, y_train)
-    y_pred_test = fit.predict(X_test)
-    y_pred_train = fit.predict(X_train)
+    C = SVC(kernel='rbf')
+    skf = StratifiedKFold(n_splits=folds, shuffle=True, random_state=run)
+    folds_y = []
+    folds_yPred = []
+    for (train_idx, test_idx) in skf.split(X, y):
+      X_train, y_train = XN[train_idx], y[train_idx]
+      X_test,  y_test  = XN[test_idx],  y[test_idx]
+      nested_skf = StratifiedKFold(n_splits=folds)
 
-    tmpG += mean_squared_error(y_test, y_pred_test)
-    testErr = calc_error(y_test, y_pred_test)
-    trainErr = calc_error(y_test, y_pred_train)
-  mse_G = tmpG/runs
-  print("SVM mean squared error:", mse_G)
+      y_predict  = cross_val_predict(C, X_train,  y_train, cv=nested_skf, n_jobs=-1)
+      folds_y = np.append(folds_y, y_train)
+      folds_yPred  = np.append(folds_yPred, y_predict)
 
-  show_roc(testErr, trainErr)
+    # Compute accuracy for this fold
+    tmpC += accuracy_score(folds_y, folds_yPred)
+    print(confusion_matrix(folds_y, folds_yPred))
+
+    print(run+1, "Error:", tmpC/(run+1))
+
+  err_C = tmpC/runs
+  print("SVM error:", err_C)
+
+  #show_roc(testErr, trainErr)
 
 
 def NN(dataFile):
-  runs = 5
+  runs = 2
+  folds = 20
 
   X, y = load_data(dataFile)
 
-  C = MLP()
-  tmpG = 0
-  testErr = []
-  trainErr = []
+
+  # Normalize
+  # axis=0 so each feature is normalized for all samples
+  XN = normalize(X, axis=0)
+
+  tmpC = 0
   for run in range(runs):
-    X_train, y_train, X_test, y_test = split_data_set(X, y, train_split=0.7)
-    fit = C.fit(X_train, y_train)
-    y_pred_test = fit.predict(X_test)
-    y_pred_train = fit.predict(X_train)
+    C = MLP()
+    skf = StratifiedKFold(n_splits=folds, shuffle=True, random_state=run)
+    folds_y = []
+    folds_yPred = []
+    for (train_idx, test_idx) in skf.split(X, y):
+      X_train, y_train = XN[train_idx], y[train_idx]
+      X_test,  y_test  = XN[test_idx],  y[test_idx]
+      nested_skf = StratifiedKFold(n_splits=folds)
 
-    tmpG += accuracy_score(y_test, y_pred_test)
-    testErr = calc_error(y_test, y_pred_test)
-    trainErr = calc_error(y_test, y_pred_train)
-  mse_C = tmpG/runs
-  print("NN mean squared error:", mse_C)
+      y_predict  = cross_val_predict(C, X_train,  y_train, cv=nested_skf, n_jobs=-1)
+      folds_y = np.append(folds_y, y_train)
+      folds_yPred  = np.append(folds_yPred, y_predict)
 
+    # Compute accuracy for this fold
+    tmpC += accuracy_score(folds_y, folds_yPred)
+    print(confusion_matrix(folds_y, folds_yPred))
+
+    print(run+1, "Error:", tmpC/(run+1))
+
+  err_C = tmpC/runs
+  print("NN error:", err_C)
 
 
 if __name__ == "__main__":
-  dataFile = 'stockSentimentA.csv'
-  NN(dataFile)
+  dataFile = 'data/stockSentimentBWithPrev.csv'
+  SVM(dataFile)
+  #NN(dataFile)

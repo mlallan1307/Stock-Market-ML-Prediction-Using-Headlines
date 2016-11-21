@@ -66,13 +66,18 @@ def load_stockData(fn):
   # calculate std
   for k, v in stocks.items():
     values = np.append(values, v)
-  d = np.std(values)
+  d0 = np.std(values)*0.25
+  d1 = np.std(values)
   # set stocks to be sell, hold, buy (-1, 0, 1)
   for k, v in stocks.items():
     c = 0
-    if v > d:
+    if v > d1:
+      c = 2
+    elif v < (-1*d1):
+      c = -2
+    elif v > d0:
       c = 1
-    elif v < (-1*d):
+    elif v < (-1*d0):
       c = -1
     stocks[k] = c
   return stocks
@@ -317,6 +322,7 @@ if __name__ == "__main__":
   combined_p = combine_data_prev(senti, stocks, news_reddit, prev_day)
 
   print_dataset(combined, 'stockSentimentA.csv')
+  exit()
   print_dataset_prev(combined_p, 'stockSentimentAWithPrev.csv')
   print_dataset_prev_only(combined_p, 'stockSentimentAOnlyPrev.csv')
 
