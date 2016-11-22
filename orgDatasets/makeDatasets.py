@@ -66,7 +66,7 @@ def load_stockData(fn):
   # calculate std
   for k, v in stocks.items():
     values = np.append(values, v)
-  d0 = np.std(values)*0.25
+  d0 = np.std(values)*0.1
   d1 = np.std(values)
   # set stocks to be sell, hold, buy (-1, 0, 1)
   for k, v in stocks.items():
