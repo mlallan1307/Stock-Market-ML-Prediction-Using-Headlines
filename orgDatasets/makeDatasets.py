@@ -331,6 +331,7 @@ if __name__ == "__main__":
   senti = load_sentiment_senticnet()
   stocks = load_stockData('DJIA_table.csv')
   news_reddit, prev_day = load_newsReddit_senticnet('RedditNews.csv')
+  # The below takes 7 hours to run
   combined = combine_data_senticnet(senti, stocks, news_reddit)
   combined_p = combine_data_prev_senticnet(senti, stocks, news_reddit, prev_day)
 

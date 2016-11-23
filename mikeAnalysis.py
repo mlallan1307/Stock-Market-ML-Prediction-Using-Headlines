@@ -249,7 +249,7 @@ def Gen_Mutate(child):
         f = int(feature)
         if random.random()>0.5:
           f += 100
-        elif f>=200:
+        elif f>200:
           f -= 100
         newFeature = int(f)
 
@@ -320,25 +320,42 @@ def NN(dataFile):
 def feature_correlation(dataFile):
   X, y = load_data(dataFile)
 
-  # Normalize
-  # axis=0 so each feature is normalized for all samples
-  XN = normalize(X, axis=0)
-
   pears = []
-  print(X[0])
-  print(XN[0])
-  print(len(XN[0]))
-  for i in range(len(XN[0])):
+  for i in range(len(X[0])):
     e = []
-    for j in range(len(XN)):
-      e.append(XN[j][i])
+    for j in range(len(X)):
+      e.append(X[j][i])
     pears.append(np.corrcoef(e, y)[0][1])
   print(np.array(pears))
+  print("Sum:", np.sum(np.absolute(np.array(pears))))
+  print("Average:", np.average(np.absolute(np.array(pears))))
 
 
 if __name__ == "__main__":
+  data = [
+    'data/stockSentimentA.csv',
+    'data/stockSentimentAOnlyPrev.csv',
+    'data/stockSentimentAWithPrev.csv',
+    'data/stockSentimentB.csv',
+    'data/stockSentimentBOnlyPrev.csv',
+    'data/stockSentimentBWithPrev.csv'
+  ]
   dataFile = 'data/stockSentimentBWithPrev.csv'
-  #SVM(dataFile)
-  #NN(dataFile)
-  NN_genetic_search(dataFile)
-  #feature_correlation(dataFile)
+
+  option = 4
+
+  if option == 1:
+    SVM(dataFile)
+
+  elif option == 2:
+    NN(dataFile)
+
+  elif option == 3:
+    NN_genetic_search(dataFile)
+
+  elif option == 4:
+    for f in data:
+      print('------------------------------')
+      print(f)
+      print()
+      feature_correlation(f)
