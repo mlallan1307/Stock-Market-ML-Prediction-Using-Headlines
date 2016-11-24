@@ -62,15 +62,19 @@ def load_stockData(fn):
     if not l.startswith('Date'):
       ls = l.split(',')
       stocks[ls[0]] = float(ls[4]) - float(ls[1])
+  '''
   values = np.array([])
   # calculate std
   for k, v in stocks.items():
     values = np.append(values, v)
   d0 = np.std(values)*0.1
   d1 = np.std(values)
-  # set stocks to be sell, hold, buy (-1, 0, 1)
+  '''
   for k, v in stocks.items():
     c = 0
+    if v > 0:
+      c = 1
+    '''
     if v > d1:
       c = 2
     elif v < (-1*d1):
@@ -79,6 +83,7 @@ def load_stockData(fn):
       c = 1
     elif v < (-1*d0):
       c = -1
+    '''
     stocks[k] = c
   return stocks
 
