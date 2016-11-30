@@ -4,13 +4,31 @@ The purpose of this is to:
 '''
 
 import numpy as np
+import copy
 
 from makeDatasets import load_sentiment, load_newsReddit_senticnet
 
+
+def headline_value(data):
+  rtn = 0
+  rtn += data[0] * 0.00469442  # positive
+  rtn += data[1] * -0.00502836 # negative
+  return rtn
+
+
+def headline_value_sentic(data):
+  rtn = 0
+  rtn += data[0] * -0.02790178 # pleasantness
+  rtn += data[1] * 0.00574016  # attention
+  rtn += data[2] * 0.02935138  # sensitivity
+  rtn += data[3] * -0.01584717 # aptitude
+  rtn += data[4] * -0.01867028 # polarity
+  return rtn
+
+
 def sentiment_per_headline(news, sentiment):
-  rtn = {}
+  rtn = []
   for date, headlines in news.items():
-    tmp = []
     for n in headlines:
       words = {}
       w = n.split()
@@ -27,58 +45,45 @@ def sentiment_per_headline(news, sentiment):
         if word in sentiment:
           pos += (sentiment[word][0])*freq
           neg += (sentiment[word][1])*freq
-      tmp.append([pos, neg, n])
-    rtn[date] = tmp
+      tmp = [headline_value([pos, neg])]
+      tmp.extend([n, date, pos, neg])
+      rtn.append(tmp)
   return rtn
+
+
+def sentiment_per_headline_sentic(news):
+  import json
+  loaded = {}
+  with open('senticnet_headline_values.json', 'r') as fh:
+    loaded = json.load(fh)
+
+  rtn = []
+  rtnd = {}
+  for date, headlines in news.items():
+    if date not in loaded:
+      print(date, "not in json!")
+      return
+    for i, hl in enumerate(headlines):
+      values = [headline_value_sentic(loaded[date][i])]
+      values.extend([hl, date, list(loaded[date][i])])
+      rtn.append(values)
+      if date not in rtnd:
+        rtnd[date] = values[0]
+      else:
+        rtnd[date] += values[0]
+  return rtn, rtnd
 
 
 def high_low_headlines(data):
   keep = 5
 
-  high = []
-  low = []
-  for date, v in data.items():
-    for headline in v:
-      pos = headline[0]
-      neg = headline[1]
-      s = pos - neg
-      txt = headline[2]
-      if len(high) < keep:
-        high.append(list(headline))
-        continue
-      if len(low) < keep:
-        low.append(list(headline))
-        continue
-      i = -1
-      for idx, k in enumerate(high):
-        if k[0] - k[1] < s:
-          # keep looping until lowest found
-          if i == -1 or high[i][0] - high[i][1] > k[0] - k[1]:
-            i = idx
-      if i != -1:
-        high[i] = list(headline)
+  dCopy = sorted(data, key=(lambda x: x[0]))
 
-      i = -1
-      for idx, k in enumerate(low):
-        if k[0] - k[1] > s:
-          # keep looping until lowest found
-          if i == -1 or low[i][0] - low[i][1] < k[0] - k[1]:
-            i = idx
-      if i != -1:
-        low[i] = list(headline)
+  high = list(dCopy[-keep:])
+  high.reverse()
+  low  = list(dCopy[:keep])
+
   return (high, low)
-
-
-def sort_high_low_headlines(high, low):
-  h = [[(x[0]-x[1]), list(x)] for x in high]
-  l = [[(x[0]-x[1]), list(x)] for x in low]
-
-  h.sort(key=lambda x: x[0])
-  h.reverse()
-
-  l.sort(key=lambda x: x[0])
-
-  return [x[1] for x in h], [x[1] for x in l]
 
 
 def print_headlines(high, low):
@@ -92,10 +97,97 @@ def print_headlines(high, low):
     print(i+1, '->', ' '.join([str(y) for y in x]))
 
 
+def load_data(dataFile):
+  X = []
+  y = []
+  with open(dataFile) as handle:
+    for line in handle:
+      if line.startswith('#'):
+        continue
+      split = line.strip().split(',')[1:]
+      y.append(int(split[-1]))
+      X.append(np.array(split[:-1], dtype=float))
+  return np.array(X), np.array(y)
+
+
+def load_stock():
+  rtn = []
+  rtnd = {}
+  news_reddit = load_newsReddit_senticnet()
+  with open('DJIA_table.csv', 'r') as fh:
+    for line in fh:
+      if line.startswith("Date"):
+        continue
+      ls = line.strip().split(',')
+      if ls[0] not in news_reddit:
+        continue
+      rtn.append(float(ls[4]) - float(ls[1]))
+      rtnd[ls[0]] = (float(ls[4]) - float(ls[1]))
+  return rtn, rtnd
+
+
+import matplotlib.mlab as mlab
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import normalize
+
+def label_histogram():
+  y, _ = load_stock()
+  y1 = [x for x in y if x>0]
+  y2 = [x for x in y if x<=0]
+  print("High pct:", len(y1)/len(y)) # 0.5414781297134238
+  print("Low  pct:", len(y2)/len(y)) # 0.45852187028657615
+  # the histogram of the data
+  n, bins, patches = plt.hist([y2, y1], 50, normed=1, histtype='stepfilled', color=['red', 'green'], label=['Fall', 'Rise'])
+
+  # add a 'best fit' line
+  #y = mlab.normpdf( bins, mu, sigma)
+  #l = plt.plot(bins, y, 'r--', linewidth=1)
+
+  plt.xlabel('Daily Stock Market Change (Points)')
+  plt.ylabel('Frequency')
+  plt.title('Stock Market change Distribution')
+  plt.xlim([-1000, 1000])
+
+  plt.legend()
+  plt.show()
+
+
+def senti_scatter():
+  _, stockDict = load_stock()
+  news_reddit = load_newsReddit_senticnet()
+  _, sentiDict = sentiment_per_headline_sentic(news_reddit)
+  # get sentiment summary for the day
+  # get list of stock change for the day
+
+  x = []
+  y = []
+  for date, stock in stockDict.items():
+    if date not in sentiDict:
+      print ("senti_scatter Error")
+      return
+    senti = sentiDict[date]
+    x.append(stock)
+    y.append(senti)
+
+  plt.scatter(normalize(x),normalize(y))
+  plt.xlim([-0.15, 0.15])
+  plt.ylim([-0.15, 0.15])
+  plt.show()
+
+
 if __name__ == "__main__":
-  senti = load_sentiment('SentiWordNet.csv')
-  news_reddit, prev_day = load_newsReddit_senticnet('RedditNews.csv')
-  news_senti = sentiment_per_headline(news_reddit, senti)
-  h, l = high_low_headlines(news_senti)
-  sh, sl = sort_high_low_headlines(h, l)
-  print_headlines(sh, sl)
+  option = 3
+  news_reddit = load_newsReddit_senticnet()
+  if option == 1:
+    senti = load_sentiment('SentiWordNet.csv')
+    news_senti = sentiment_per_headline(news_reddit, senti)
+    h, l = high_low_headlines(news_senti)
+    print_headlines(h, l)
+  elif option == 2:
+    news_senti, _ = sentiment_per_headline_sentic(news_reddit)
+    h, l = high_low_headlines(news_senti)
+    print_headlines(h, l)
+  elif option == 3:
+    # graphs
+    #label_histogram()
+    senti_scatter()

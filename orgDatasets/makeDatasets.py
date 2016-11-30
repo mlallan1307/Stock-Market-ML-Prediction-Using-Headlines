@@ -4,6 +4,9 @@ from senticnet4 import senticnet
 import numpy as np
 import re
 import copy
+import os
+import pandas as pd
+from sklearn.feature_extraction.text import CountVectorizer, ENGLISH_STOP_WORDS
 
 def get_lines(fn):
   lines = []
@@ -89,86 +92,48 @@ def load_stockData(fn):
 
 #############################################################3
 
-def load_newsReddit(fn):
-  lines = get_lines(fn)
-  news = {}
-  prev_day = {}
-  lines_new = []
-  lc = ''
-  for l in lines:
-    if not l.startswith('Date'):
-      if re.search(r'^20\d{2}-\d{2}-\d{2}', l):
-        lines_new.append(re.sub('\n', '', l))
-      else:
-        lines_new[-1] += re.sub('\n', '', l)
 
-  for i, l in enumerate(lines_new):
-    ls = l.split(',')
-    n = l[len(ls[0])+1:]
-    rm1_list = r'\'s|^b\'|^\"b\'|^\"b\"'
-    rm_list = r'"|\'|\.|,|:|\t|\||;|\?|\!|\$|^b|\[|\]|\(|\)|\\r|\\n|\\'
-    sp_list = r'\s+-\s+|-\s+|--+'
-    n = n.strip()
-    n = re.sub(rm1_list, '', n)
-    n = re.sub(rm_list, '', n)
-    n = re.sub(sp_list, ' ', n)
-    n = n.lower()
-    n = n.strip()
-    if ls[0] in news:
-      news[ls[0]].append(n)
-    else:
-      news[ls[0]] = [n]
-      if i < len(lines_new)-1:
-        prev_day[(lines_new[i-1].split(','))[0]] = ls[0]
-
-  counts = {}
-  for k, v in news.items():
-    words = {}
-    for n in v:
-      w = n.split()
-      for cw in w:
-        cw = cw.lower()
-        if cw in words:
-          words[cw] += 1
-        else:
-          words[cw] = 1
-    counts[k] = words
-  return counts, prev_day
+def load_newsReddit():
+  # This method was revised to run as Chris designed it. It's now correlated > 7x better with labels
+  raw_data = pd.read_csv('Combined_News_DJIA.csv')
+  # count up the raw words as a list of dictionaries per day
+  daily_words = {}
+  for i in range(len(raw_data)):
+    daily = {}
+    date = (raw_data.iloc[i,0])
+    for j in range(2,27):
+      article = raw_data.iloc[i,j]
+      if not pd.isnull(article):
+        raw_words = CountVectorizer().build_tokenizer()(article.lower())
+        # only use significant words
+        words = [s for s in raw_words if s not in ENGLISH_STOP_WORDS]
+        for word in words:
+          if word in daily:
+            daily[word] += 1
+          else:
+            daily[word] = 1
+    daily_words[date] = daily
+  return daily_words
 
 
-def load_newsReddit_senticnet(fn):
-  lines = get_lines(fn)
-  news = {}
-  prev_day = {}
-  lines_new = []
-  lc = ''
-  for l in lines:
-    if not l.startswith('Date'):
-      if re.search(r'^20\d{2}-\d{2}-\d{2}', l):
-        lines_new.append(re.sub('\n', '', l))
-      else:
-        lines_new[-1] += re.sub('\n', '', l)
+def load_newsReddit_senticnet():
+  raw_data = pd.read_csv('Combined_News_DJIA.csv')
+  # count up the raw words as a list of dictionaries per day
+  daily_headlines = {}
+  for i in range(len(raw_data)):
+    daily = []
+    date = (raw_data.iloc[i,0])
+    for j in range(2,27):
+      article = raw_data.iloc[i,j]
+      if not pd.isnull(article):
+        raw_headline = ' '.join(CountVectorizer().build_tokenizer()(article.lower()))
+        #print (article)
+        #print (raw_words)
+        #input("Continue:")
+        daily.append(raw_headline)
+    daily_headlines[date] = daily
+  return daily_headlines
 
-  for i, l in enumerate(lines_new):
-    ls = l.split(',')
-    n = l[len(ls[0])+1:]
-    rm1_list = r'\'s|^b\'|^\"b\'|^\"b\"'
-    rm_list = r'"|\'|\.|,|:|\t|\||;|\?|\!|\$|^b|\[|\]|\(|\)|\\r|\\n|\\'
-    sp_list = r'\s+-\s+|-\s+|--+'
-    n = n.strip()
-    n = re.sub(rm1_list, '', n)
-    n = re.sub(rm_list, '', n)
-    n = re.sub(sp_list, ' ', n)
-    n = n.lower()
-    n = n.strip()
-    if ls[0] in news:
-      news[ls[0]].append(n)
-    else:
-      news[ls[0]] = [n]
-      if i < len(lines_new)-1:
-        prev_day[(lines_new[i-1].split(','))[0]] = ls[0]
-
-  return news, prev_day
 
 #############################################################3
 
@@ -187,16 +152,40 @@ def combine_data(sentiment, stocks, news):
   return rtn
 
 
+def combine_data_senticnet_thread(headline, sentiment):
+  rtn = np.zeros(5)
+  for word, value in sentiment.items():
+    rtn = np.add(rtn, np.multiply(headline.count(word), value))
+  return rtn
+
+
 def combine_data_senticnet(sentiment, stocks, news):
+  from multiprocessing import Pool
+  import json
+  json_file = 'senticnet_headline_values.json'
   rtn = []
+  c = len(stocks)
+  json_dict = {}
   for date, dayNews in news.items():
     if date not in stocks:
       continue
     v = np.zeros(5)
-    for word, value in sentiment.items():
-      for story in dayNews:
-        v = np.add(v, np.multiply(story.count(word), value))
+    raw_headlines = []
+    print ("{}/{}".format(c, len(stocks)), date, end='\t')
+    c -= 1
+    with Pool(processes=18) as TP:
+      jobs = []
+      for headline in dayNews:
+        jobs.append(TP.apply_async(combine_data_senticnet_thread, (headline, sentiment)))
+      for i in range(len(jobs)):
+        res = jobs[i].get()
+        v = np.add(v, res)
+        raw_headlines.append(list(res))
+    json_dict[date] = raw_headlines
     rtn.append([date, str(v[0]), str(v[1]), str(v[2]), str(v[3]), str(v[4]), str(stocks[date])])
+    print(rtn[-1])
+  with open(json_file, 'w') as fh:
+    json.dump(json_dict, fh, sort_keys=True)
   return rtn
 
 #############################################################3
@@ -320,26 +309,28 @@ def print_dataset_prev_only_senticnet(data, fn):
 #############################################################3
 
 if __name__ == "__main__":
-  senti = load_sentiment('SentiWordNet.csv')
-  stocks = load_stockData('DJIA_table.csv')
-  news_reddit, prev_day = load_newsReddit('RedditNews.csv')
-  combined = combine_data(senti, stocks, news_reddit)
-  combined_p = combine_data_prev(senti, stocks, news_reddit, prev_day)
+  option = 2
 
-  print_dataset(combined, 'stockSentimentA.csv')
-  exit()
-  print_dataset_prev(combined_p, 'stockSentimentAWithPrev.csv')
-  print_dataset_prev_only(combined_p, 'stockSentimentAOnlyPrev.csv')
+  if option == 1:
+    senti = load_sentiment('SentiWordNet.csv')
+    stocks = load_stockData('DJIA_table.csv')
+    news_reddit = load_newsReddit()
+    combined = combine_data(senti, stocks, news_reddit)
+    #combined_p = combine_data_prev(senti, stocks, news_reddit, prev_day)
 
-  #############################################################3
+    print_dataset(combined, 'stockSentimentA.csv')
+    #print_dataset_prev(combined_p, 'stockSentimentAWithPrev.csv')
+    #print_dataset_prev_only(combined_p, 'stockSentimentAOnlyPrev.csv')
 
-  senti = load_sentiment_senticnet()
-  stocks = load_stockData('DJIA_table.csv')
-  news_reddit, prev_day = load_newsReddit_senticnet('RedditNews.csv')
-  # The below takes 7 hours to run
-  combined = combine_data_senticnet(senti, stocks, news_reddit)
-  combined_p = combine_data_prev_senticnet(senti, stocks, news_reddit, prev_day)
+  elif option == 2:
 
-  print_dataset_senticnet(combined, 'stockSentimentB.csv')
-  print_dataset_prev_senticnet(combined_p, 'stockSentimentBWithPrev.csv')
-  print_dataset_prev_only_senticnet(combined_p, 'stockSentimentBOnlyPrev.csv')
+    senti = load_sentiment_senticnet()
+    stocks = load_stockData('DJIA_table.csv')
+    news_reddit = load_newsReddit_senticnet()
+    # The below takes 7 hours to run
+    combined = combine_data_senticnet(senti, stocks, news_reddit)
+    #combined_p = combine_data_prev_senticnet(senti, stocks, news_reddit, prev_day)
+
+    print_dataset_senticnet(combined, 'stockSentimentB2.csv')
+    #print_dataset_prev_senticnet(combined_p, 'stockSentimentBWithPrev.csv')
+    #print_dataset_prev_only_senticnet(combined_p, 'stockSentimentBOnlyPrev.csv')
