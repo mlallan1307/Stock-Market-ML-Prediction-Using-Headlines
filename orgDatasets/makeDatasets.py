@@ -27,6 +27,7 @@ def load_sentiment(fn):
       for i in range(len(words)):
         tmp = words[i]
         tmp = re.sub(r'#\d*', '', tmp)
+        tmp = ' '.join(tmp.split('_'))
         if tmp in senti:
           senti[tmp][0] += float(ls[2]) # positive
           senti[tmp][1] += float(ls[3]) # negative
@@ -121,8 +122,9 @@ def load_newsReddit_senticnet():
   # count up the raw words as a list of dictionaries per day
   daily_headlines = {}
   for i in range(len(raw_data)):
-    daily = []
     date = (raw_data.iloc[i,0])
+    label = int(raw_data.iloc[i,1])
+    daily = [label]
     for j in range(2,27):
       article = raw_data.iloc[i,j]
       if not pd.isnull(article):
@@ -137,18 +139,39 @@ def load_newsReddit_senticnet():
 
 #############################################################3
 
-def combine_data(sentiment, stocks, news):
+def combine_data_thread(headline, sentiment):
+  rtn = np.zeros(2)
+  for word, value in sentiment.items():
+    rtn = np.add(rtn, np.multiply(headline.count(word), value))
+  return rtn
+
+
+def combine_data(sentiment, news):
+  from multiprocessing import Pool
+  import json
+  json_file = 'sentiword_headline_values.json'
+  json_dict = {}
   rtn = []
-  for date, words in news.items():
-    if date not in stocks:
-      continue
-    pos = 0
-    neg = 0
-    for word, freq in words.items():
-      if word in sentiment:
-        pos += (sentiment[word][0])*freq
-        neg += (sentiment[word][1])*freq
-    rtn.append([date, str(pos), str(neg), str(stocks[date])])
+  c = len(news)
+  for date, dayNews in news.items():
+    v = np.zeros(2)
+    label = dayNews[0]
+    raw_headlines = []
+    print ("{}/{}".format(c, len(news)), date, end='\t')
+    c -= 1
+    with Pool(processes=18) as TP:
+      jobs = []
+      for i in range(1, len(dayNews)):
+        jobs.append(TP.apply_async(combine_data_thread, (dayNews[i], sentiment)))
+      for i in range(len(jobs)):
+        res = jobs[i].get()
+        v = np.add(v, res)
+        raw_headlines.append(list(res))
+    json_dict[date] = raw_headlines
+    rtn.append([date, str(v[0]), str(v[1]), str(label)])
+    print(rtn[-1])
+  with open(json_file, 'w') as fh:
+    json.dump(json_dict, fh, sort_keys=True)
   return rtn
 
 
@@ -159,13 +182,13 @@ def combine_data_senticnet_thread(headline, sentiment):
   return rtn
 
 
-def combine_data_senticnet(sentiment, stocks, news):
+def combine_data_senticnet(sentiment, news):
   from multiprocessing import Pool
   import json
   json_file = 'senticnet_headline_values.json'
+  json_dict = {}
   rtn = []
   c = len(stocks)
-  json_dict = {}
   for date, dayNews in news.items():
     if date not in stocks:
       continue
@@ -309,13 +332,12 @@ def print_dataset_prev_only_senticnet(data, fn):
 #############################################################3
 
 if __name__ == "__main__":
-  option = 2
+  option = 1
 
   if option == 1:
     senti = load_sentiment('SentiWordNet.csv')
-    stocks = load_stockData('DJIA_table.csv')
-    news_reddit = load_newsReddit()
-    combined = combine_data(senti, stocks, news_reddit)
+    news_reddit = load_newsReddit_senticnet()
+    combined = combine_data(senti, news_reddit)
     #combined_p = combine_data_prev(senti, stocks, news_reddit, prev_day)
 
     print_dataset(combined, 'stockSentimentA.csv')
@@ -325,10 +347,9 @@ if __name__ == "__main__":
   elif option == 2:
 
     senti = load_sentiment_senticnet()
-    stocks = load_stockData('DJIA_table.csv')
     news_reddit = load_newsReddit_senticnet()
     # The below takes 7 hours to run
-    combined = combine_data_senticnet(senti, stocks, news_reddit)
+    combined = combine_data_senticnet(senti, news_reddit)
     #combined_p = combine_data_prev_senticnet(senti, stocks, news_reddit, prev_day)
 
     print_dataset_senticnet(combined, 'stockSentimentB2.csv')

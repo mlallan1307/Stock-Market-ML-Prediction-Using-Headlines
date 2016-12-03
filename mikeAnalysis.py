@@ -390,7 +390,7 @@ def get_dataset(i, labels=False):
     lines = csv.reader(fh)
     for n, l in enumerate(lines):
       if n != 0:
-        y.append(int(l[2]))
+        y.append(int(l[1]))
         bag.append(list(l[firstWord:]))
         sentiWord.append(list(l[4:dataSetSplit]))
         sentic.append(list(l[dataSetSplit:firstWord]))
